@@ -3,30 +3,23 @@ from sqlalchemy import create_engine
 import clickhouse_connect
 import logging
 
+
 logger = logging.getLogger(__name__)
 
 # PostgreSQL connection
 PG_CONN = "postgresql://postgres:postgres@host.docker.internal:5432/analytics"
 
-# ClickHouse connection
-CH_CONFIG = {
-    'host': 'host.docker.internal',
-    'port': 8123,
-    'database': 'analytics',
-    'user': 'default',
-    'password': '1234'
-}
+client = clickhouse_connect.get_client(
+            host=os.getenv('CLICKHOUSE_HOST', 'host.docker.internal'),
+            port=int(os.getenv('CLICKHOUSE_HTTP_PORT', 8123)),
+            username=os.getenv('CLICKHOUSE_USER', 'default'),
+            password=os.getenv('CLICKHOUSE_PASSWORD', '1234'),
+            database=os.getenv('CLICKHOUSE_DATABASE', 'analytics')
+        )
 
 def setup_clickhouse():
     """Setup ClickHouse database and tables"""
     logger.info("Setting up ClickHouse...")
-    
-    client = clickhouse_connect.get_client(
-        host=CH_CONFIG['host'],
-        port=CH_CONFIG['port'],
-        username=CH_CONFIG['user'],
-        password=CH_CONFIG['password']
-    )
     
     try:
         # Create database
@@ -78,281 +71,236 @@ def setup_clickhouse():
     finally:
         client.close()
 
-def load_to_clickhouse(table_name):
-    """Load a table from PostgreSQL to ClickHouse"""
-    logger.info(f"Loading {table_name} to ClickHouse...")
-    
-    # Extract from PostgreSQL
-    pg_engine = create_engine(PG_CONN)
-    df = pd.read_sql(f"SELECT * FROM {table_name}", pg_engine)
-    logger.info(f"Extracted {len(df)} rows from PostgreSQL")
-    
-    # Convert date columns
-    date_columns = df.select_dtypes(include=['datetime64']).columns
-    for col in date_columns:
-        df[col] = pd.to_datetime(df[col]).dt.date
-    
-    # Connect to ClickHouse
-    client = clickhouse_connect.get_client(
-        host=CH_CONFIG['host'],
-        port=CH_CONFIG['port'],
-        username=CH_CONFIG['user'],
-        password=CH_CONFIG['password']
-    )
+def verify_clickhouse_data():
+    """Verify that data was loaded into ClickHouse by Airbyte"""
     
     try:
-        # Load to ClickHouse
-        client.insert_df(f"{CH_CONFIG['database']}.{table_name}", df)
-        logger.info(f"Loaded {len(df)} rows to ClickHouse table: {table_name}")
+        # Try to connect to the analytics database first
+        databases_to_check = ['analytics', 'default', os.getenv('CLICKHOUSE_DATABASE', 'default')]
+        found_database = None
         
-        # Verify
-        result = client.query(f"SELECT COUNT(*) FROM {CH_CONFIG['database']}.{table_name}")
+        for db in databases_to_check:
+            try:
+                # Check if raw_sales exists in this database
+                tables = client.query("SHOW TABLES").result_rows
+                table_names = [row[0] for row in tables]
+                if 'raw_sales' in table_names:
+                    found_database = db
+                    print(f"✓ Found raw_sales table in database: {db}")
+                    break
+            except:
+                continue
+        
+        if not client:
+            raise AirflowException(
+                f"Could not find raw_sales table in databases: {databases_to_check}. "
+                f"Please check your Airbyte connection configuration."
+            )
+        
+        # Get table structure
+        describe_result = client.query("DESCRIBE TABLE raw_sales")
+        columns = [(row[0], row[1]) for row in describe_result.result_rows]
+        print(f"Table columns: {[col[0] for col in columns]}")
+        
+        # Check if table has data
+        result = client.query("SELECT count() FROM raw_sales")
         count = result.result_rows[0][0]
-        logger.info(f"Verified: {count} rows in ClickHouse")
-    finally:
-        client.close()
+        
+        print(f"✓ Found {count} records in {found_database}.raw_sales table")
+        
+        if count == 0:
+            raise AirflowException(f"No data found in raw_sales table after Airbyte sync")
+        
+        return {'database': found_database, 'columns': [col[0] for col in columns], 'count': count}
+        
+    except Exception as e:
+        raise AirflowException(f"Failed to verify ClickHouse data: {str(e)}")
 
-def load_customer_segments():
-    """Load customer_segments to ClickHouse"""
-    load_to_clickhouse('customer_segments')
 
-def load_customer_metrics():
-    """Load customer_metrics to ClickHouse"""
-    load_to_clickhouse('customer_metrics')
-
-def load_product_analysis():
-    """Load product_analysis to ClickHouse"""
-    load_to_clickhouse('product_analysis')
-
-def get_clickhouse_client():
-    """Get ClickHouse client connection"""
-    return clickhouse_connect.get_client(
-        host=CH_CONFIG['host'],
-        port=CH_CONFIG['port'],
-        username=CH_CONFIG['user'],
-        password=CH_CONFIG['password'],
-        database=CH_CONFIG['database']
-    )
-
-def create_analytics_tables():
-    """Create analytics tables for ClickHouse transformations"""
-    logger.info("Creating analytics tables in ClickHouse...")
-    client = get_clickhouse_client()
+def run_dbt_on_clickhouse():
+    """
+    Run dbt transformations on ClickHouse data
+    Note: This assumes you have a ClickHouse profile configured in dbt
+    """
+    print("Running dbt transformations on ClickHouse data...")
     
+    # This is a placeholder - you'll need to configure dbt for ClickHouse
+    # For now, we'll use a Python-based transformation approach
+    print("⚠ Note: dbt native ClickHouse support requires dbt-clickhouse adapter")
+    print("  Falling back to Python-based transformations")
+    
+    return True
+
+
+def transform_data_python():
+    """
+    Transform data in ClickHouse using Python
+    Columns in raw_sales: order_id, price, quantity, order_date, product_id, customer_id
+    """    
     try:
-        # Product performance table
+        
+        print("Creating staging view...")
+        # Create staging view with standardized column names
         client.command("""
-            CREATE TABLE IF NOT EXISTS product_performance (
-                product_id UInt32,
-                total_quantity_sold UInt32,
-                total_revenue Float64,
-                order_count UInt32,
-                avg_quantity_per_order Float64,
-                avg_price Float64
-            ) ENGINE = MergeTree()
-            ORDER BY product_id
+            CREATE OR REPLACE VIEW stg_sales AS
+            SELECT 
+                order_id,
+                customer_id,
+                product_id,
+                order_date as sale_date,
+                quantity,
+                price as unit_price,
+                quantity * price as total_amount
+            FROM raw_sales
+            WHERE quantity > 0 AND price > 0
         """)
         
-        # Daily sales summary table
+        print("Creating customer metrics table...")
+        # Customer analytics
+        client.command("DROP TABLE IF EXISTS customer_metrics")
         client.command("""
-            CREATE TABLE IF NOT EXISTS daily_sales_summary (
-                order_date Date,
-                total_orders UInt32,
-                total_revenue Float64,
-                total_quantity UInt32,
-                unique_customers UInt32,
-                unique_products UInt32,
-                avg_order_value Float64
-            ) ENGINE = MergeTree()
-            ORDER BY order_date
-        """)
-        
-        logger.info("Analytics tables created successfully")
-    finally:
-        client.close()
-
-def transform_customer_metrics_from_raw():
-    """Transform raw_sales into customer_metrics in ClickHouse"""
-    logger.info("Transforming customer metrics from raw_sales...")
-    client = get_clickhouse_client()
-    
-    try:
-        # Clear existing data
-        client.command("TRUNCATE TABLE IF EXISTS customer_metrics")
-        
-        # Insert transformed data
-        client.command("""
-            INSERT INTO customer_metrics
+            CREATE TABLE customer_metrics
+            ENGINE = MergeTree()
+            ORDER BY tuple()
+            AS
             SELECT 
                 customer_id,
-                COUNT(*) as total_orders,
-                SUM(quantity * price) as total_revenue,
-                AVG(quantity * price) as avg_order_value,
-                MIN(order_date) as first_order_date,
-                MAX(order_date) as last_order_date
-            FROM raw_sales
+                count(*) as total_orders,
+                sum(total_amount) as total_revenue,
+                avg(total_amount) as avg_order_value,
+                min(sale_date) as first_order_date,
+                max(sale_date) as last_order_date,
+                count(DISTINCT product_id) as unique_products,
+                sum(quantity) as total_items_purchased
+            FROM stg_sales
+            WHERE customer_id IS NOT NULL
             GROUP BY customer_id
         """)
         
-        result = client.query("SELECT COUNT(*) as count FROM customer_metrics")
-        count = result.result_rows[0][0]
-        logger.info(f"Transformed {count} customer records")
-        return count
-    finally:
-        client.close()
-
-def transform_product_performance_from_raw():
-    """Transform raw_sales into product_performance in ClickHouse"""
-    logger.info("Transforming product performance from raw_sales...")
-    client = get_clickhouse_client()
-    
-    try:
-        # Clear existing data
-        client.command("TRUNCATE TABLE IF EXISTS product_performance")
-        
-        # Insert transformed data
+        print("Creating product analysis table...")
+        # Product analytics with tier labeling
+        client.command("DROP TABLE IF EXISTS product_analysis")
         client.command("""
-            INSERT INTO product_performance
+            CREATE TABLE product_analysis
+            ENGINE = MergeTree()
+            ORDER BY tuple()
+            AS
+            WITH product_stats AS (
+                SELECT 
+                    product_id,
+                    count(*) as total_orders,
+                    sum(quantity) as total_quantity_sold,
+                    sum(total_amount) as total_revenue,
+                    avg(unit_price) as avg_price,
+                    min(unit_price) as min_price,
+                    max(unit_price) as max_price,
+                    count(DISTINCT customer_id) as unique_customers
+                FROM stg_sales
+                WHERE product_id IS NOT NULL
+                GROUP BY product_id
+            ),
+            revenue_percentiles AS (
+                SELECT 
+                    quantile(0.33)(total_revenue) as p33,
+                    quantile(0.67)(total_revenue) as p67
+                FROM product_stats
+            )
             SELECT 
+                ps.product_id,
+                ps.total_orders,
+                ps.total_quantity_sold,
+                ps.total_revenue,
+                ps.avg_price,
+                ps.min_price,
+                ps.max_price,
+                ps.unique_customers,
+                CASE 
+                    WHEN ps.total_revenue >= rp.p67 THEN 'Gold'
+                    WHEN ps.total_revenue >= rp.p33 THEN 'Silver'
+                    ELSE 'Bronze'
+                END as product_tier
+            FROM product_stats ps
+            CROSS JOIN revenue_percentiles rp
+        """)
+        
+        print("Creating daily sales summary table...")
+        # Daily sales summary
+        client.command("DROP TABLE IF EXISTS daily_sales_summary")
+        client.command("""
+            CREATE TABLE daily_sales_summary
+            ENGINE = MergeTree()
+            ORDER BY tuple()
+            AS
+            SELECT 
+                sale_date,
+                count(*) as total_orders,
+                sum(total_amount) as total_revenue,
+                avg(total_amount) as avg_order_value,
+                sum(quantity) as total_items_sold,
+                count(DISTINCT customer_id) as unique_customers,
+                count(DISTINCT product_id) as unique_products
+            FROM stg_sales
+            WHERE sale_date IS NOT NULL
+            GROUP BY sale_date
+        """)
+        
+        print("Creating monthly sales summary table...")
+        # Monthly sales summary
+        client.command("DROP TABLE IF EXISTS monthly_sales_summary")
+        client.command("""
+            CREATE TABLE monthly_sales_summary
+            ENGINE = MergeTree()
+            ORDER BY tuple()
+            AS
+            SELECT 
+                toStartOfMonth(sale_date) as sale_month,
+                count(*) as total_orders,
+                sum(total_amount) as total_revenue,
+                avg(total_amount) as avg_order_value,
+                sum(quantity) as total_items_sold,
+                count(DISTINCT customer_id) as unique_customers,
+                count(DISTINCT product_id) as unique_products
+            FROM stg_sales
+            WHERE sale_date IS NOT NULL
+            GROUP BY sale_month
+        """)
+        
+        print("Creating customer product affinity table...")
+        # Customer-Product affinity
+        client.command("DROP TABLE IF EXISTS customer_product_affinity")
+        client.command("""
+            CREATE TABLE customer_product_affinity
+            ENGINE = MergeTree()
+            ORDER BY tuple()
+            AS
+            SELECT 
+                customer_id,
                 product_id,
-                SUM(quantity) as total_quantity_sold,
-                SUM(quantity * price) as total_revenue,
-                COUNT(*) as order_count,
-                AVG(quantity) as avg_quantity_per_order,
-                AVG(price) as avg_price
-            FROM raw_sales
-            GROUP BY product_id
+                count(*) as purchase_count,
+                sum(quantity) as total_quantity,
+                sum(total_amount) as total_spent,
+                min(sale_date) as first_purchase_date,
+                max(sale_date) as last_purchase_date
+            FROM stg_sales
+            WHERE customer_id IS NOT NULL AND product_id IS NOT NULL
+            GROUP BY customer_id, product_id
         """)
         
-        result = client.query("SELECT COUNT(*) as count FROM product_performance")
-        count = result.result_rows[0][0]
-        logger.info(f"Transformed {count} product records")
-        return count
-    finally:
-        client.close()
-
-def transform_daily_sales_summary_from_raw():
-    """Transform raw_sales into daily_sales_summary in ClickHouse"""
-    logger.info("Transforming daily sales summary from raw_sales...")
-    client = get_clickhouse_client()
-    
-    try:
-        # Clear existing data
-        client.command("TRUNCATE TABLE IF EXISTS daily_sales_summary")
+        # Verify transformations
+        metrics_count = client.query("SELECT count() FROM customer_metrics").result_rows[0][0]
+        products_count = client.query("SELECT count() FROM product_analysis").result_rows[0][0]
+        daily_count = client.query("SELECT count() FROM daily_sales_summary").result_rows[0][0]
+        monthly_count = client.query("SELECT count() FROM monthly_sales_summary").result_rows[0][0]
+        affinity_count = client.query("SELECT count() FROM customer_product_affinity").result_rows[0][0]
         
-        # Insert transformed data
-        client.command("""
-            INSERT INTO daily_sales_summary
-            SELECT 
-                order_date,
-                COUNT(*) as total_orders,
-                SUM(quantity * price) as total_revenue,
-                SUM(quantity) as total_quantity,
-                COUNT(DISTINCT customer_id) as unique_customers,
-                COUNT(DISTINCT product_id) as unique_products,
-                AVG(quantity * price) as avg_order_value
-            FROM raw_sales
-            GROUP BY order_date
-            ORDER BY order_date
-        """)
+        print(f"✓ Transformation complete:")
+        print(f"  - Customer metrics: {metrics_count} customers")
+        print(f"  - Product analysis: {products_count} products")
+        print(f"  - Daily sales summary: {daily_count} days")
+        print(f"  - Monthly sales summary: {monthly_count} months")
+        print(f"  - Customer-Product affinity: {affinity_count} combinations")
         
-        result = client.query("SELECT COUNT(*) as count FROM daily_sales_summary")
-        count = result.result_rows[0][0]
-        logger.info(f"Transformed {count} daily summary records")
-        return count
-    finally:
-        client.close()
-
-def validate_clickhouse_transformations():
-    """Run data quality checks on ClickHouse transformations"""
-    logger.info("Running ClickHouse data quality checks...")
-    client = get_clickhouse_client()
-    
-    try:
-        # Check raw_sales count
-        raw_count = client.query("SELECT COUNT(*) FROM raw_sales").result_rows[0][0]
-        logger.info(f"Raw sales records: {raw_count}")
+        return True
         
-        if raw_count == 0:
-            raise ValueError("raw_sales table is empty!")
-        
-        # Check customer_metrics
-        customer_count = client.query("SELECT COUNT(*) FROM customer_metrics").result_rows[0][0]
-        logger.info(f"Customer metrics records: {customer_count}")
-        
-        # Check product_performance
-        product_count = client.query("SELECT COUNT(*) FROM product_performance").result_rows[0][0]
-        logger.info(f"Product performance records: {product_count}")
-        
-        # Check daily_sales_summary
-        daily_count = client.query("SELECT COUNT(*) FROM daily_sales_summary").result_rows[0][0]
-        logger.info(f"Daily sales summary records: {daily_count}")
-        
-        # Validate revenue consistency
-        raw_revenue = client.query("SELECT SUM(quantity * price) FROM raw_sales").result_rows[0][0]
-        customer_revenue = client.query("SELECT SUM(total_revenue) FROM customer_metrics").result_rows[0][0]
-        
-        # Handle None values and convert to float
-        raw_revenue = float(raw_revenue) if raw_revenue is not None else 0.0
-        customer_revenue = float(customer_revenue) if customer_revenue is not None else 0.0
-        
-        if abs(raw_revenue - customer_revenue) < 0.01:
-            logger.info(f"✓ Revenue validation passed: {raw_revenue:.2f}")
-        else:
-            raise ValueError(f"Revenue mismatch: raw={raw_revenue}, customer={customer_revenue}")
-        
-        return {
-            'raw_count': raw_count,
-            'customer_count': customer_count,
-            'product_count': product_count,
-            'daily_count': daily_count,
-            'total_revenue': raw_revenue
-        }
-    finally:
-        client.close()
-
-def generate_clickhouse_summary():
-    """Generate summary report of ClickHouse transformations"""
-    logger.info("Generating ClickHouse summary report...")
-    client = get_clickhouse_client()
-    
-    try:
-        # Top 5 customers by revenue
-        top_customers = client.query("""
-            SELECT customer_id, total_revenue, total_orders
-            FROM customer_metrics
-            ORDER BY total_revenue DESC
-            LIMIT 5
-        """)
-        
-        logger.info("\n=== Top 5 Customers by Revenue ===")
-        for row in top_customers.result_rows:
-            logger.info(f"Customer {row[0]}: ${row[1]:.2f} ({row[2]} orders)")
-        
-        # Top 5 products by revenue
-        top_products = client.query("""
-            SELECT product_id, total_revenue, total_quantity_sold
-            FROM product_performance
-            ORDER BY total_revenue DESC
-            LIMIT 5
-        """)
-        
-        logger.info("\n=== Top 5 Products by Revenue ===")
-        for row in top_products.result_rows:
-            logger.info(f"Product {row[0]}: ${row[1]:.2f} ({row[2]} units sold)")
-        
-        # Recent daily trends
-        recent_trends = client.query("""
-            SELECT order_date, total_orders, total_revenue
-            FROM daily_sales_summary
-            ORDER BY order_date DESC
-            LIMIT 7
-        """)
-        
-        logger.info("\n=== Last 7 Days Sales ===")
-        for row in recent_trends.result_rows:
-            logger.info(f"{row[0]}: {row[1]} orders, ${row[2]:.2f} revenue")
-        
-        return "Summary report generated successfully"
-    finally:
-        client.close()
+    except Exception as e:
+        raise AirflowException(f"Failed to transform data: {str(e)}")
