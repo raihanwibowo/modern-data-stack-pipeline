@@ -1,0 +1,2 @@
+-- Initialize Airflow database
+-- This file is automatically executed when the postgres container starts

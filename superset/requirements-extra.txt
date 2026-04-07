@@ -1,0 +1,4 @@
+psycopg2-binary
+clickhouse-connect
+clickhouse-driver
+clickhouse-sqlalchemy

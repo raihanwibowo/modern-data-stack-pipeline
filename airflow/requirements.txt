@@ -1,0 +1,8 @@
+dbt-postgres
+pandas
+numpy
+sqlalchemy
+psycopg2-binary
+clickhouse-connect
+clickhouse-driver
+requests

@@ -1,0 +1,9 @@
+FROM apache/superset:latest
+
+USER root
+
+# Install packages directly into the venv using pip's --target flag
+RUN /usr/local/bin/pip install --target=/app/.venv/lib/python3.10/site-packages \
+    psycopg2-binary clickhouse-connect clickhouse-driver clickhouse-sqlalchemy
+
+USER superset
