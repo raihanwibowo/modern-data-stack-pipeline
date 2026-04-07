@@ -2,19 +2,16 @@ import pandas as pd
 from sqlalchemy import create_engine
 import clickhouse_connect
 import logging
-
+import os
 
 logger = logging.getLogger(__name__)
-
-# PostgreSQL connection
-PG_CONN = "postgresql://postgres:postgres@host.docker.internal:5432/analytics"
 
 client = clickhouse_connect.get_client(
             host=os.getenv('CLICKHOUSE_HOST', 'host.docker.internal'),
             port=int(os.getenv('CLICKHOUSE_HTTP_PORT', 8123)),
             username=os.getenv('CLICKHOUSE_USER', 'default'),
-            password=os.getenv('CLICKHOUSE_PASSWORD', '1234'),
-            database=os.getenv('CLICKHOUSE_DATABASE', 'analytics')
+            password=os.getenv('CLICKHOUSE_PASSWORD', ''),
+            database=os.getenv('CLICKHOUSE_DATABASE', 'default')
         )
 
 def setup_clickhouse():

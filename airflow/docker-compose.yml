@@ -12,13 +12,18 @@ x-airflow-common:
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
     _PIP_ADDITIONAL_REQUIREMENTS: 'dbt-postgres pandas numpy sqlalchemy psycopg2-binary clickhouse-connect'
-    # dbt environment variables
-    POSTGRES_HOST: host.docker.internal
-    POSTGRES_PORT: 5432
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DB: analytics
-    POSTGRES_SCHEMA: public
+    # Airbyte Configuration (from .env)
+    AIRBYTE_URL: ${AIRBYTE_URL:-http://host.docker.internal:8000}
+    AIRBYTE_USERNAME: ${AIRBYTE_USERNAME:-airbyte}
+    AIRBYTE_PASSWORD: ${AIRBYTE_PASSWORD:-password}
+    AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID: ${AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID:-your-connection-id}
+    # ClickHouse Configuration (from .env)
+    CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-host.docker.internal}
+    CLICKHOUSE_PORT: ${CLICKHOUSE_PORT:-9000}
+    CLICKHOUSE_HTTP_PORT: ${CLICKHOUSE_HTTP_PORT:-8123}
+    CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-analytics}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
@@ -30,6 +35,8 @@ x-airflow-common:
     &airflow-common-depends-on
     postgres:
       condition: service_healthy
+  env_file:
+    - .env
 
 services:
   postgres:

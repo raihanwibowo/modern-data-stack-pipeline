@@ -5,12 +5,12 @@ import os
 # Configuration
 AIRBYTE_URL = os.getenv('AIRBYTE_URL', 'http://host.docker.internal:8000')
 AIRBYTE_API_URL = f"{AIRBYTE_URL}/api/v1"
-AIRBYTE_USERNAME = os.getenv('AIRBYTE_USERNAME', 'raihan.wibowo@gmail.com')
-AIRBYTE_PASSWORD = os.getenv('AIRBYTE_PASSWORD', 'Du0T3bc411nGMeaqR8KcIVU2h01c0ETt')
+AIRBYTE_USERNAME = os.getenv('AIRBYTE_USERNAME', 'airbyte')
+AIRBYTE_PASSWORD = os.getenv('AIRBYTE_PASSWORD', 'airbyte')
 
 POSTGRES_TO_CLICKHOUSE_CONNECTION_ID = os.getenv(
     'AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID',
-    'b706dc46-cc44-4be4-b24f-92ac889db648'
+    ''
 )
 
 def get_auth():
@@ -31,7 +31,7 @@ def check_airbyte_health():
         raise AirflowException(f"Airbyte API is not accessible: {str(e)}")
 
 
-def trigger_airbyte_sync(connection_id: str):
+def trigger_airbyte_sync():
     """
     Trigger Airbyte sync from Postgres to ClickHouse
     
@@ -42,10 +42,10 @@ def trigger_airbyte_sync(connection_id: str):
         job_id: The Airbyte job ID for status checking
     """
     print(f"Triggering Airbyte sync: Postgres → ClickHouse")
-    print(f"Connection ID: {connection_id}")
+    print(f"Connection ID: {POSTGRES_TO_CLICKHOUSE_CONNECTION_ID}")
     
     url = f"{AIRBYTE_API_URL}/connections/sync"
-    payload = {"connectionId": connection_id}
+    payload = {"connectionId": POSTGRES_TO_CLICKHOUSE_CONNECTION_ID}
     auth = get_auth()
     
     try:

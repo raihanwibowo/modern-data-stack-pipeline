@@ -16,6 +16,7 @@ import time
 import os
 from packages.airbyte import get_auth, trigger_airbyte_sync, check_airbyte_health, check_airbyte_job_status
 from packages.clickhouse_loader import verify_clickhouse_data, transform_data_python
+from packages.summary_report import generate_summary_report
 
 default_args = {
     'owner': 'airflow',
@@ -26,54 +27,6 @@ default_args = {
     'retries': 2,
     'retry_delay': timedelta(minutes=5),
 }
-
-def generate_summary_report():
-    """Generate a summary report of the pipeline execution"""
-    
-    try:
-        
-        print("\n" + "="*80)
-        print("PIPELINE EXECUTION SUMMARY")
-        print("="*80)
-        
-        # Raw data stats
-        raw_count = client.query("SELECT count() FROM raw_sales").result_rows[0][0]
-        print(f"\n📊 Raw Data:")
-        print(f"   Total records: {raw_count}")
-        
-        # Transformed data stats
-        customers = client.query("SELECT count() FROM customer_metrics").result_rows[0][0]
-        products = client.query("SELECT count() FROM product_analysis").result_rows[0][0]
-        regions = client.query("SELECT count() FROM regional_analysis").result_rows[0][0]
-        
-        print(f"\n📈 Transformed Data:")
-        print(f"   Customer metrics: {customers} customers")
-        print(f"   Product analysis: {products} products")
-        print(f"   Regional analysis: {regions} region-month combinations")
-        
-        # Top insights
-        top_customer = client.query("""
-            SELECT customer_id, total_revenue 
-            FROM customer_metrics 
-            ORDER BY total_revenue DESC 
-            LIMIT 1
-        """).result_rows
-        
-        if top_customer:
-            print(f"\n🏆 Top Customer:")
-            print(f"   Customer ID: {top_customer[0][0]}")
-            print(f"   Total Revenue: ${top_customer[0][1]:,.2f}")
-        
-        print("\n" + "="*80)
-        print("✓ Pipeline completed successfully!")
-        print("="*80 + "\n")
-        
-        return True
-        
-    except Exception as e:
-        print(f"Warning: Could not generate summary: {str(e)}")
-        return True  # Don't fail the pipeline for summary issues
-
 
 # Create the DAG
 with DAG(
@@ -95,7 +48,6 @@ with DAG(
     trigger_sync = PythonOperator(
         task_id='trigger_airbyte_sync',
         python_callable=trigger_airbyte_sync,
-        op_kwargs={'connection_id': POSTGRES_TO_CLICKHOUSE_CONNECTION_ID},
     )
     
     # Step 3: Monitor Airbyte sync status
