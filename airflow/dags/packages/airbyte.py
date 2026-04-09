@@ -1,29 +1,30 @@
+"""
+Airbyte integration module for triggering and monitoring syncs
+"""
 import requests
-import time
-import os
+from airflow.exceptions import AirflowException
+from .config import AirbyteConfig
 
-# Configuration
-AIRBYTE_URL = os.getenv('AIRBYTE_URL', 'http://host.docker.internal:8000')
-AIRBYTE_API_URL = f"{AIRBYTE_URL}/api/v1"
-AIRBYTE_USERNAME = os.getenv('AIRBYTE_USERNAME', 'airbyte')
-AIRBYTE_PASSWORD = os.getenv('AIRBYTE_PASSWORD', 'airbyte')
 
-POSTGRES_TO_CLICKHOUSE_CONNECTION_ID = os.getenv(
-    'AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID',
-    ''
-)
+def get_airbyte_config():
+    """Get Airbyte configuration from environment"""
+    return AirbyteConfig.from_env()
+
 
 def get_auth():
     """Get Airbyte authentication credentials"""
-    if AIRBYTE_USERNAME and AIRBYTE_PASSWORD:
-        return (AIRBYTE_USERNAME, AIRBYTE_PASSWORD)
+    config = get_airbyte_config()
+    if config.username and config.password:
+        return (config.username, config.password)
     return None
 
 
 def check_airbyte_health():
     """Check if Airbyte API is accessible"""
+    config = get_airbyte_config()
+    
     try:
-        response = requests.get(f"{AIRBYTE_URL}/api/v1/health", timeout=10)
+        response = requests.get(f"{config.url}/api/v1/health", timeout=10)
         response.raise_for_status()
         print("✓ Airbyte API is healthy")
         return True
@@ -35,17 +36,25 @@ def trigger_airbyte_sync():
     """
     Trigger Airbyte sync from Postgres to ClickHouse
     
-    Args:
-        connection_id: Airbyte connection ID
-    
     Returns:
-        job_id: The Airbyte job ID for status checking
-    """
-    print(f"Triggering Airbyte sync: Postgres → ClickHouse")
-    print(f"Connection ID: {POSTGRES_TO_CLICKHOUSE_CONNECTION_ID}")
+        str: The Airbyte job ID for status checking
     
-    url = f"{AIRBYTE_API_URL}/connections/sync"
-    payload = {"connectionId": POSTGRES_TO_CLICKHOUSE_CONNECTION_ID}
+    Raises:
+        AirflowException: If sync trigger fails
+    """
+    config = get_airbyte_config()
+    
+    if not config.connection_id:
+        raise AirflowException(
+            "AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID not set. "
+            "Please configure it in airflow/.env"
+        )
+    
+    print(f"Triggering Airbyte sync: Postgres → ClickHouse")
+    print(f"Connection ID: {config.connection_id}")
+    
+    url = f"{config.url}/api/v1/connections/sync"
+    payload = {"connectionId": config.connection_id}
     auth = get_auth()
     
     try:
@@ -65,7 +74,7 @@ def trigger_airbyte_sync():
         raise AirflowException(f"Failed to trigger Airbyte sync: {str(e)}")
 
 
-def check_airbyte_job_status(job_id: str):
+def check_airbyte_job_status(job_id: str) -> bool:
     """
     Check the status of an Airbyte job
     
@@ -74,13 +83,17 @@ def check_airbyte_job_status(job_id: str):
     
     Returns:
         bool: True if job is complete, False if still running
+    
+    Raises:
+        AirflowException: If job fails or is cancelled
     """
     if not job_id or job_id == 'None':
         raise AirflowException("Invalid job ID")
     
+    config = get_airbyte_config()
     print(f"Checking Airbyte job status: {job_id}")
     
-    url = f"{AIRBYTE_API_URL}/jobs/get"
+    url = f"{config.url}/api/v1/jobs/get"
     payload = {"id": job_id}
     auth = get_auth()
     
@@ -103,8 +116,8 @@ def check_airbyte_job_status(job_id: str):
                 last_attempt = attempts[-1]
                 records_synced = last_attempt.get('recordsSynced', 0)
                 bytes_synced = last_attempt.get('bytesSynced', 0)
-                print(f"  Records synced: {records_synced}")
-                print(f"  Bytes synced: {bytes_synced}")
+                print(f"  Records synced: {records_synced:,}")
+                print(f"  Bytes synced: {bytes_synced:,}")
             
             return True
             
