@@ -42,6 +42,7 @@ def _make_config(
 # get_auth
 # ---------------------------------------------------------------------------
 
+from dags.packages.airbyte import get_auth
 class TestGetAuth(unittest.TestCase):
 
     def test_returns_tuple_when_credentials_present(self):
