@@ -6,7 +6,8 @@ class AirbyteConfig:
     url: str
     username: str
     password: str
-    connection_id: str
+    connection_id_1: str
+    connection_id_2: str
 
     @classmethod
     def from_env(cls):
@@ -14,7 +15,8 @@ class AirbyteConfig:
             url=os.getenv('AIRBYTE_URL', 'http://host.docker.internal:8000'),
             username=os.getenv('AIRBYTE_USERNAME', 'airbyte'),
             password=os.getenv('AIRBYTE_PASSWORD', 'password'),
-            connection_id=os.getenv('AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID', '')
+            connection_id_1=os.getenv('AIRBYTE_CONNECTION_ID_1', ''),
+            connection_id_2=os.getenv('AIRBYTE_CONNECTION_ID_2', '')
         )
 
 @dataclass

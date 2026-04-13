@@ -68,6 +68,10 @@ superset/superset_home/
 # *.parquet
 # *.json
 
+# Seed data files
+dbt/seeds/raw_sales_data.csv
+dbt/seeds/raw_sales.csv
+
 # Credentials and secrets
 *credentials*
 *secrets*

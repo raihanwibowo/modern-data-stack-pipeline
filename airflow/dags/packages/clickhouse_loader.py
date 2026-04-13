@@ -3,6 +3,8 @@ from sqlalchemy import create_engine
 import clickhouse_connect
 import logging
 import os
+from airflow.exceptions import AirflowException
+
 
 logger = logging.getLogger(__name__)
 
@@ -13,60 +15,6 @@ client = clickhouse_connect.get_client(
             password=os.getenv('CLICKHOUSE_PASSWORD', ''),
             database=os.getenv('CLICKHOUSE_DATABASE', 'default')
         )
-
-def setup_clickhouse():
-    """Setup ClickHouse database and tables"""
-    logger.info("Setting up ClickHouse...")
-    
-    try:
-        # Create database
-        client.command(f"CREATE DATABASE IF NOT EXISTS {CH_CONFIG['database']}")
-        
-        # Create tables
-        client.command(f"""
-            CREATE TABLE IF NOT EXISTS {CH_CONFIG['database']}.customer_segments (
-                customer_id Int32,
-                total_orders Int32,
-                total_revenue Float64,
-                avg_order_value Float64,
-                first_order_date Date,
-                last_order_date Date,
-                customer_segment String,
-                days_since_last_order Int32,
-                is_active Bool
-            ) ENGINE = MergeTree()
-            ORDER BY customer_id
-        """)
-        
-        client.command(f"""
-            CREATE TABLE IF NOT EXISTS {CH_CONFIG['database']}.customer_metrics (
-                customer_id Int32,
-                total_orders Int32,
-                total_revenue Float64,
-                avg_order_value Float64,
-                first_order_date Date,
-                last_order_date Date
-            ) ENGINE = MergeTree()
-            ORDER BY customer_id
-        """)
-        
-        client.command(f"""
-            CREATE TABLE IF NOT EXISTS {CH_CONFIG['database']}.product_analysis (
-                product_id Int32,
-                order_count Int32,
-                total_quantity_sold Int32,
-                total_revenue Float64,
-                avg_order_value Float64,
-                revenue_std Nullable(Float64),
-                revenue_percentile Float64,
-                product_tier String
-            ) ENGINE = MergeTree()
-            ORDER BY product_id
-        """)
-        
-        logger.info("ClickHouse setup complete")
-    finally:
-        client.close()
 
 def verify_clickhouse_data():
     """Verify that data was loaded into ClickHouse by Airbyte"""

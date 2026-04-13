@@ -32,7 +32,7 @@ def check_airbyte_health():
         raise AirflowException(f"Airbyte API is not accessible: {str(e)}")
 
 
-def trigger_airbyte_sync():
+def trigger_airbyte_sync(connection_id: str = None) -> str:
     """
     Trigger Airbyte sync from Postgres to ClickHouse
     
@@ -44,21 +44,21 @@ def trigger_airbyte_sync():
     """
     config = get_airbyte_config()
     
-    if not config.connection_id:
+    if not connection_id:
         raise AirflowException(
             "AIRBYTE_POSTGRES_TO_CLICKHOUSE_CONNECTION_ID not set. "
             "Please configure it in airflow/.env"
         )
     
     print(f"Triggering Airbyte sync: Postgres → ClickHouse")
-    print(f"Connection ID: {config.connection_id}")
+    print(f"Connection ID: {connection_id}")
     
     url = f"{config.url}/api/v1/connections/sync"
-    payload = {"connectionId": config.connection_id}
+    payload = {"connectionId": connection_id}
     auth = get_auth()
     
     try:
-        response = requests.post(url, json=payload, auth=auth, timeout=30)
+        response = requests.post(url, json=payload, timeout=30)
         response.raise_for_status()
         
         job_data = response.json()
@@ -98,7 +98,7 @@ def check_airbyte_job_status(job_id: str) -> bool:
     auth = get_auth()
     
     try:
-        response = requests.post(url, json=payload, auth=auth, timeout=30)
+        response = requests.post(url, json=payload, timeout=30)
         response.raise_for_status()
         
         job_data = response.json()

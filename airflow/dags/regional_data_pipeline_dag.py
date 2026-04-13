@@ -1,10 +1,3 @@
-"""
-Complete ELT Pipeline: Postgres → Airbyte → ClickHouse → dbt → ClickHouse
-This DAG orchestrates:
-1. Extract from Postgres to ClickHouse using Airbyte
-2. Transform data using dbt (reads from ClickHouse raw tables)
-3. Load transformed data back to ClickHouse
-"""
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -25,13 +18,12 @@ default_args = {
 }
 
 # Create the DAG
-with DAG(
-    'postgres_airbyte_dbt_clickhouse_pipeline',
+with DAG('regional_data_pipeline_dag',
     default_args=default_args,
-    description='Full ELT: Postgres → Airbyte → ClickHouse → Transform → ClickHouse',
-    schedule_interval='0 2 * * *',  # Run daily at 2 AM
+    description='Regional Data Pipeline: Airbyte sync + ClickHouse transformations',
+    schedule_interval='0 3 * * *',  # Run daily at 3 AM
     catchup=False,
-    tags=['airbyte', 'dbt', 'clickhouse', 'elt', 'postgres'],
+    tags=['airbyte', 'clickhouse', 'regional', 'elt'],
 ) as dag:
     
     # Step 1: Check Airbyte health
@@ -45,7 +37,7 @@ with DAG(
         task_id='trigger_airbyte_sync',
         python_callable=trigger_airbyte_sync,
         op_kwargs={
-            'connection_id': "{{ var.value.AIRBYTE_CONNECTION_ID_1 }}"
+            'connection_id': "{{ var.value.AIRBYTE_CONNECTION_ID_2 }}"
         }
     )
     
@@ -67,17 +59,11 @@ with DAG(
         python_callable=verify_clickhouse_data,
     )
     
-    # Step 5: Transform data in ClickHouse
+    # Step 5: Transform data in ClickHouse using Python
     transform_data = PythonOperator(
-        task_id='transform_data',
+        task_id='transform_clickhouse_data',
         python_callable=transform_data_python,
     )
     
-    # Step 6: Generate summary report
-    generate_summary = PythonOperator(
-        task_id='generate_summary',
-        python_callable=generate_summary_report,
-    )
-    
     # Define task dependencies
-    check_airbyte >> trigger_sync >> monitor_sync >> verify_data >> transform_data >> generate_summary
+    check_airbyte >> trigger_sync >> monitor_sync 
