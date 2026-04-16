@@ -45,6 +45,7 @@ with DAG(
         task_id='trigger_airbyte_sync',
         python_callable=trigger_airbyte_sync,
         op_kwargs={
+            'password': "{{ var.value.AIRBYTE_PASSWORD }}",
             'connection_id': "{{ var.value.AIRBYTE_CONNECTION_ID_1 }}"
         }
     )
@@ -54,11 +55,12 @@ with DAG(
         task_id='monitor_airbyte_sync',
         python_callable=check_airbyte_job_status,
         op_kwargs={
+            'password': "{{ var.value.AIRBYTE_PASSWORD }}",
             'job_id': "{{ task_instance.xcom_pull(task_ids='trigger_airbyte_sync') }}"
         },
         poke_interval=30,  # Check every 30 seconds
         timeout=3600,  # Timeout after 1 hour
-        mode='poke',
+        mode='reschedule',
     )
     
     # Step 4: Verify data in ClickHouse

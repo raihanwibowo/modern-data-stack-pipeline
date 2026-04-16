@@ -169,6 +169,7 @@ class TestTriggerAirbyteSync(unittest.TestCase):
         mock_post.assert_called_once_with(
             'http://airbyte:8000/api/v1/connections/sync',
             json={'connectionId': 'my-conn'},
+            auth=None,
             timeout=30,
         )
 

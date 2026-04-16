@@ -11,11 +11,11 @@ def get_airbyte_config():
     return AirbyteConfig.from_env()
 
 
-def get_auth():
+def get_auth(password: str = None):
     """Get Airbyte authentication credentials"""
     config = get_airbyte_config()
-    if config.username and config.password:
-        return (config.username, config.password)
+    if config.username and (password or config.password):
+        return (config.username, password or config.password)
     return None
 
 
@@ -32,7 +32,7 @@ def check_airbyte_health():
         raise AirflowException(f"Airbyte API is not accessible: {str(e)}")
 
 
-def trigger_airbyte_sync(connection_id: str = None) -> str:
+def trigger_airbyte_sync(password: str = None, connection_id: str = None) -> str:
     """
     Trigger Airbyte sync from Postgres to ClickHouse
     
@@ -55,10 +55,10 @@ def trigger_airbyte_sync(connection_id: str = None) -> str:
     
     url = f"{config.url}/api/v1/connections/sync"
     payload = {"connectionId": connection_id}
-    auth = get_auth()
+    auth = get_auth(password)
     
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, auth=auth, timeout=30)
         response.raise_for_status()
         
         job_data = response.json()
@@ -74,7 +74,7 @@ def trigger_airbyte_sync(connection_id: str = None) -> str:
         raise AirflowException(f"Failed to trigger Airbyte sync: {str(e)}")
 
 
-def check_airbyte_job_status(job_id: str) -> bool:
+def check_airbyte_job_status(password: str = None, job_id: str = None) -> bool:
     """
     Check the status of an Airbyte job
     
@@ -95,10 +95,10 @@ def check_airbyte_job_status(job_id: str) -> bool:
     
     url = f"{config.url}/api/v1/jobs/get"
     payload = {"id": job_id}
-    auth = get_auth()
+    auth = get_auth(password)
     
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, auth=auth, timeout=30)
         response.raise_for_status()
         
         job_data = response.json()

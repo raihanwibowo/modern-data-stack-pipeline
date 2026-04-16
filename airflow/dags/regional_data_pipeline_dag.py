@@ -37,6 +37,7 @@ with DAG('regional_data_pipeline_dag',
         task_id='trigger_airbyte_sync',
         python_callable=trigger_airbyte_sync,
         op_kwargs={
+            'password': "{{ var.value.AIRBYTE_PASSWORD }}",
             'connection_id': "{{ var.value.AIRBYTE_CONNECTION_ID_2 }}"
         }
     )
@@ -46,11 +47,12 @@ with DAG('regional_data_pipeline_dag',
         task_id='monitor_airbyte_sync',
         python_callable=check_airbyte_job_status,
         op_kwargs={
+            'password': "{{ var.value.AIRBYTE_PASSWORD }}",
             'job_id': "{{ task_instance.xcom_pull(task_ids='trigger_airbyte_sync') }}"
         },
         poke_interval=30,  # Check every 30 seconds
         timeout=3600,  # Timeout after 1 hour
-        mode='poke',
+        mode='reschedule',
     )
     
     # Step 4: Verify data in ClickHouse
@@ -66,4 +68,4 @@ with DAG('regional_data_pipeline_dag',
     )
     
     # Define task dependencies
-    check_airbyte >> trigger_sync >> monitor_sync 
+    check_airbyte >> trigger_sync >> monitor_sync >> verify_data >> transform_data

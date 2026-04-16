@@ -27,18 +27,15 @@ clickhouse_connect_stub.get_client.return_value = _mock_client
 
 import packages.clickhouse_loader as loader  # noqa: E402
 
-# Patch the module-level client directly so every test gets a fresh mock
-loader.client = _mock_client
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _reset_client():
-    """Return a fresh MagicMock and wire it into the module."""
+    """Return a fresh MagicMock and wire it into the module via the factory."""
     mock = MagicMock()
-    loader.client = mock
+    loader.get_clickhouse_client = lambda: mock
     return mock
 
 

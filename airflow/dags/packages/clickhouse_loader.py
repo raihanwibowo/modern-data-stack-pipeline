@@ -8,17 +8,22 @@ from airflow.exceptions import AirflowException
 
 logger = logging.getLogger(__name__)
 
-client = clickhouse_connect.get_client(
-            host=os.getenv('CLICKHOUSE_HOST', 'host.docker.internal'),
-            port=int(os.getenv('CLICKHOUSE_HTTP_PORT', 8123)),
-            username=os.getenv('CLICKHOUSE_USER', 'default'),
-            password=os.getenv('CLICKHOUSE_PASSWORD', ''),
-            database=os.getenv('CLICKHOUSE_DATABASE', 'default')
-        )
+
+def get_clickhouse_client():
+    """Get ClickHouse client from environment variables"""
+    return clickhouse_connect.get_client(
+        host=os.getenv('CLICKHOUSE_HOST', 'host.docker.internal'),
+        port=int(os.getenv('CLICKHOUSE_HTTP_PORT', 8123)),
+        username=os.getenv('CLICKHOUSE_USER', 'default'),
+        password=os.getenv('CLICKHOUSE_PASSWORD', ''),
+        database=os.getenv('CLICKHOUSE_DATABASE', 'default')
+    )
+
 
 def verify_clickhouse_data():
     """Verify that data was loaded into ClickHouse by Airbyte"""
     
+    client = get_clickhouse_client()
     try:
         # Try to connect to the analytics database first
         databases_to_check = ['analytics', 'default', os.getenv('CLICKHOUSE_DATABASE', 'default')]
@@ -31,12 +36,12 @@ def verify_clickhouse_data():
                 table_names = [row[0] for row in tables]
                 if 'raw_sales' in table_names:
                     found_database = db
-                    print(f"✓ Found raw_sales table in database: {db}")
+                    logger.info(f"Found raw_sales table in database: {db}")
                     break
-            except:
+            except Exception:
                 continue
         
-        if not client:
+        if not found_database:
             raise AirflowException(
                 f"Could not find raw_sales table in databases: {databases_to_check}. "
                 f"Please check your Airbyte connection configuration."
@@ -45,13 +50,13 @@ def verify_clickhouse_data():
         # Get table structure
         describe_result = client.query("DESCRIBE TABLE raw_sales")
         columns = [(row[0], row[1]) for row in describe_result.result_rows]
-        print(f"Table columns: {[col[0] for col in columns]}")
+        logger.info(f"Table columns: {[col[0] for col in columns]}")
         
         # Check if table has data
         result = client.query("SELECT count() FROM raw_sales")
         count = result.result_rows[0][0]
         
-        print(f"✓ Found {count} records in {found_database}.raw_sales table")
+        logger.info(f"Found {count} records in {found_database}.raw_sales table")
         
         if count == 0:
             raise AirflowException(f"No data found in raw_sales table after Airbyte sync")
@@ -67,12 +72,11 @@ def run_dbt_on_clickhouse():
     Run dbt transformations on ClickHouse data
     Note: This assumes you have a ClickHouse profile configured in dbt
     """
-    print("Running dbt transformations on ClickHouse data...")
+    logger.info("Running dbt transformations on ClickHouse data...")
     
     # This is a placeholder - you'll need to configure dbt for ClickHouse
     # For now, we'll use a Python-based transformation approach
-    print("⚠ Note: dbt native ClickHouse support requires dbt-clickhouse adapter")
-    print("  Falling back to Python-based transformations")
+    logger.warning("dbt native ClickHouse support requires dbt-clickhouse adapter. Falling back to Python-based transformations.")
     
     return True
 
@@ -81,10 +85,10 @@ def transform_data_python():
     """
     Transform data in ClickHouse using Python
     Columns in raw_sales: order_id, price, quantity, order_date, product_id, customer_id
-    """    
+    """
+    client = get_clickhouse_client()
     try:
-        
-        print("Creating staging view...")
+        logger.info("Creating staging view...")
         # Create staging view with standardized column names
         client.command("""
             CREATE OR REPLACE VIEW stg_sales AS
@@ -100,7 +104,7 @@ def transform_data_python():
             WHERE quantity > 0 AND price > 0
         """)
         
-        print("Creating customer metrics table...")
+        logger.info("Creating customer metrics table...")
         # Customer analytics
         client.command("DROP TABLE IF EXISTS customer_metrics")
         client.command("""
@@ -122,7 +126,7 @@ def transform_data_python():
             GROUP BY customer_id
         """)
         
-        print("Creating product analysis table...")
+        logger.info("Creating product analysis table...")
         # Product analytics with tier labeling
         client.command("DROP TABLE IF EXISTS product_analysis")
         client.command("""
@@ -168,7 +172,7 @@ def transform_data_python():
             CROSS JOIN revenue_percentiles rp
         """)
         
-        print("Creating daily sales summary table...")
+        logger.info("Creating daily sales summary table...")
         # Daily sales summary
         client.command("DROP TABLE IF EXISTS daily_sales_summary")
         client.command("""
@@ -189,7 +193,7 @@ def transform_data_python():
             GROUP BY sale_date
         """)
         
-        print("Creating monthly sales summary table...")
+        logger.info("Creating monthly sales summary table...")
         # Monthly sales summary
         client.command("DROP TABLE IF EXISTS monthly_sales_summary")
         client.command("""
@@ -210,7 +214,7 @@ def transform_data_python():
             GROUP BY sale_month
         """)
         
-        print("Creating customer product affinity table...")
+        logger.info("Creating customer product affinity table...")
         # Customer-Product affinity
         client.command("DROP TABLE IF EXISTS customer_product_affinity")
         client.command("""
@@ -238,12 +242,12 @@ def transform_data_python():
         monthly_count = client.query("SELECT count() FROM monthly_sales_summary").result_rows[0][0]
         affinity_count = client.query("SELECT count() FROM customer_product_affinity").result_rows[0][0]
         
-        print(f"✓ Transformation complete:")
-        print(f"  - Customer metrics: {metrics_count} customers")
-        print(f"  - Product analysis: {products_count} products")
-        print(f"  - Daily sales summary: {daily_count} days")
-        print(f"  - Monthly sales summary: {monthly_count} months")
-        print(f"  - Customer-Product affinity: {affinity_count} combinations")
+        logger.info(
+            f"Transformation complete: "
+            f"{metrics_count} customers, {products_count} products, "
+            f"{daily_count} daily rows, {monthly_count} monthly rows, "
+            f"{affinity_count} affinity combinations"
+        )
         
         return True
         
